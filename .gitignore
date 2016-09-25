@@ -1,0 +1,10 @@
+.build/
+mbed/
+node_modules/
+EthernetInterface/
+PixelArray/
+MCP3021/
+DoubleCoilGun/
+.temp/
+mbed-rtos/
+.idea/
