@@ -1,7 +1,14 @@
+#include <TARGET_LPC1768/cmsis.h>
 #include "MotorDriverManagerRS485.h"
 
 MotorDriverManagerRS485::MotorDriverManagerRS485(PinName txPinName, PinName rxPinName, int baudrate):
  serial(txPinName, rxPinName) {
+
+    if (rxPinName == P2_1) {
+        RBR = LPC_UART1->RBR;
+    } else  if (rxPinName == P0_11) {
+        RBR = LPC_UART2->RBR;
+    }
 
     serial.baud(baudrate);
 
@@ -14,7 +21,7 @@ void MotorDriverManagerRS485::rxHandler() {
 
     while (serial.readable()) {
         //char c = device.getc();
-        char c = LPC_UART1->RBR;
+        char c = RBR;
 
         if (receiveCounter < 8) {
             switch (receiveCounter) {
@@ -73,4 +80,72 @@ void MotorDriverManagerRS485::setSpeeds(int speed1, int speed2, int speed3, int 
 
     isSettingSpeeds = true;
     txSend = 1;
+}
+
+void MotorDriverManagerRS485::update() {
+    if (receiveCounter == 8) {
+        if (receiveBuffer[2] == 'd') {
+            int value = ((int)receiveBuffer[3]) | ((int)receiveBuffer[4] << 8) | ((int)receiveBuffer[5] << 16) | ((int)receiveBuffer[6] << 24);
+            value = ((value >> 8) * 1000) >> 16;
+
+            if (receiveBuffer[1] == deviceIds[activeSpeedIndex]) {
+                actualSpeeds[activeSpeedIndex] = value;
+                //sendNextSpeed = true;
+                //txDelayActive = 1;
+                if (activeSpeedIndex == 4) {
+                    isSettingSpeeds = false;
+                } else {
+                    txSend = 1;
+                }
+            }
+
+            activeSpeedIndex++;
+
+            if (activeSpeedIndex == 5) {
+                activeSpeedIndex = 0;
+
+                _callback.call();
+            }
+        } else {
+            txDelayActive = 1;
+            txSend = 1;
+        }
+
+        receiveCounter = 0;
+    }
+
+    if (txSend) {
+        txSend = 0;
+
+        if (isSettingSpeeds) {
+            //sendNextSpeed = false;
+            int qSpeed = ((speeds[activeSpeedIndex] << 16) / 1000) << 8;
+
+            sendBuffer[0] = '<';
+            sendBuffer[1] = deviceIds[activeSpeedIndex];
+            sendBuffer[2] = 's';
+
+            int * intlocation = (int*)(&sendBuffer[3]);
+            *intlocation = qSpeed;
+
+            sendBuffer[7] = '>';
+
+            deviceWrite(sendBuffer, 8);
+        }
+    }
+}
+
+void MotorDriverManagerRS485::deviceWrite(char *sendData, int length) {
+    int i = 0;
+
+    while (i < length) {
+        if (serial.writeable()) {
+            serial.putc(sendData[i]);
+        }
+        i++;
+    }
+}
+
+int *MotorDriverManagerRS485::getSpeeds() {
+    return speeds;
 }

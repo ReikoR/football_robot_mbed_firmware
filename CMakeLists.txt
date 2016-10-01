@@ -61,7 +61,7 @@ include_directories(
         PixelArray
         DoubleCoilGun
         MCP3021
-        MotorDriverRS485
+        MotorDriverManagerRS485
 )
 
 add_definitions(-DDEVICE_SERIAL)

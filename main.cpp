@@ -3,14 +3,15 @@
 #include "neopixel.h"
 #include "coilgun.h"
 #include "MCP3021.h"
+#include "MotorDriverManagerRS485.h"
 
 #define SERVER_PORT   8042
 
 // This must be an SPI MOSI pin.
 #define DATA_PIN P0_9
 
-Serial device(P2_0, P2_1);  // tx, rx
-//Serial device(P0_15, P0_16);  // tx, rx
+MotorDriverManagerRS485 motors(P2_0, P2_1, 150000);
+
 Serial erfRef(P0_10, P0_11);
 
 //DigitalOut led1(P0_25);
@@ -58,26 +59,8 @@ int erfReceiveCounter = 0;
 char erfReceiveBuffer[16];
 
 void executeCommand(char *buffer);
-void deviceWrite(char *sendData, int length);
 
-int charCounter = 0;
-char serialBuffer[64];
 char sendBuffer[64];
-
-int receiveCounter = 0;
-char receiveBuffer[64];
-
-int speeds[5] = {0, 0, 0, 0, 0};
-int actualSpeeds[5] = {0, 0, 0, 0, 0};
-char deviceIds[5] = {'1', '2', '3', '4', '5'};
-int activeSpeedIndex = 0;
-bool isSettingSpeeds = false;
-bool sendNextSpeed = false;
-
-int txDelayCount = 1;
-int txDelayCounter = 0;
-int txDelayActive = 0;
-int txSend = 0;
 
 bool returnSpeeds = true;
 
@@ -99,19 +82,6 @@ Endpoint client;
 
 EthernetInterface eth;
 
-void setSpeeds(int speed1, int speed2, int speed3, int speed4, int speed5) {
-    speeds[1] = speed1;
-    speeds[2] = speed2;
-    speeds[0] = speed3;
-    speeds[3] = speed4;
-    speeds[4] = speed5;
-
-    //t.start();
-    isSettingSpeeds = true;
-    txSend = 1;
-    //led3 = 1;
-}
-
 void updateTick() {
     if (ledCounter++ > ledCount) {
         ledCounter = 0;
@@ -121,74 +91,6 @@ void updateTick() {
     }
 
     update = 1;
-}
-
-void deviceRx() {
-    // Interrupt does not work with RTOS when using standard functions (getc, putc)
-    // https://developer.mbed.org/forum/bugs-suggestions/topic/4217/
-
-    while (device.readable()) {
-        //char c = device.getc();
-        char c = LPC_UART1->RBR;
-
-        //LPC_UART0->RBR = c;
-
-        //pc.putc('-');
-        //pc.putc(c);
-
-        //receiveBuffer[receiveCounter] = c;
-        //receiveCounter++;
-
-        if (receiveCounter < 8) {
-            switch (receiveCounter) {
-                case 0:
-                    if (c == '<') {
-                        receiveBuffer[receiveCounter] = c;
-                        receiveCounter++;
-                    } else {
-                        receiveCounter = 0;
-                    }
-                    break;
-                case 1:
-                    if (c == '1' || c == '2' || c == '3' || c == '4' || c == '5') {
-                        receiveBuffer[receiveCounter] = c;
-                        receiveCounter++;
-                    } else {
-                        receiveCounter = 0;
-                    }
-                    break;
-                case 2:
-                    if (c == 'd') {
-                        receiveBuffer[receiveCounter] = c;
-                        receiveCounter++;
-                    } else {
-                        receiveCounter = 0;
-                    }
-                    break;
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                    receiveBuffer[receiveCounter] = c;
-                    receiveCounter++;
-                    break;
-                case 7:
-                    if (c == '>') {
-                        receiveBuffer[receiveCounter] = c;
-                        receiveCounter++;
-                    } else {
-                        receiveCounter = 0;
-                    }
-                    break;
-                default:
-                    receiveCounter = 0;
-            }
-        }
-
-
-    }
-
-    //led4 = !led4;
 }
 
 void erfRx() {
@@ -223,7 +125,7 @@ void erfRx() {
                     erfReceiveCounter++;
                     break;
                 default:
-                    receiveCounter = 0;
+                    erfReceiveCounter = 0;
             }
         }
     }
@@ -237,19 +139,24 @@ void led2UpdateTick() {
     led2Update = 1;
 }
 
-void generate(neopixel::Pixel * out, uint32_t index, uintptr_t extra) {
-    uint32_t brightness = (index + extra) >> 3;
-    out->red   = ((index + extra) & 0x1) ? brightness : 0;
-    out->green = ((index + extra) & 0x2) ? brightness : 0;
-    out->blue  = ((index + extra) & 0x4) ? brightness : 0;
+void handleSpeedsSent() {
+    if (returnSpeeds) {
+        int *currentSpeeds = motors.getSpeeds();
+
+        int charCount = sprintf(ethSendBuffer, "<speeds:%d:%d:%d:%d:%d>",
+                                currentSpeeds[1], currentSpeeds[2], currentSpeeds[0], currentSpeeds[3],
+                                currentSpeeds[4]);
+
+        server.sendTo(client, ethSendBuffer, charCount);
+    }
 }
 
 int main() {
-    device.baud(150000);
     erfRef.baud(115200);
 
-    device.attach(&deviceRx);
     erfRef.attach(&erfRx);
+
+    motors.attach(&handleSpeedsSent);
 
     sensorUpdate.attach(&updateTick, 0.001);
 
@@ -291,54 +198,7 @@ int main() {
     array.update(pixels, 2);
 
     while(1) {
-
-        if (receiveCounter == 8) {
-
-            //pc.putc('\n');
-
-            if (receiveBuffer[2] == 'd') {
-                int value = ((int)receiveBuffer[3]) | ((int)receiveBuffer[4] << 8) | ((int)receiveBuffer[5] << 16) | ((int)receiveBuffer[6] << 24);
-                value = ((value >> 8) * 1000) >> 16;
-
-                if (receiveBuffer[1] == deviceIds[activeSpeedIndex]) {
-                    actualSpeeds[activeSpeedIndex] = value;
-                    //sendNextSpeed = true;
-                    //txDelayActive = 1;
-                    if (activeSpeedIndex == 4) {
-                        isSettingSpeeds = false;
-                        //led3 = 0;
-                    } else {
-                        txSend = 1;
-                    }
-                }
-
-                activeSpeedIndex++;
-
-                if (activeSpeedIndex == 5) {
-                    activeSpeedIndex = 0;
-
-                    //t.stop();
-
-                    //pc.printf("s:%d:%d:%d:%d:%d\n", actualSpeeds[0], actualSpeeds[1], actualSpeeds[2], actualSpeeds[3], actualSpeeds[4]);
-                    //pc.printf("t: %d", t.read_us());
-
-                    if (returnSpeeds) {
-                        int charCount = sprintf(ethSendBuffer, "<speeds:%d:%d:%d:%d:%d>",
-                                                actualSpeeds[1], actualSpeeds[2], actualSpeeds[0], actualSpeeds[3], actualSpeeds[4]);
-                        server.sendTo(client, ethSendBuffer, charCount);
-                    }
-
-                    //t.reset();
-                }
-            } else {
-                //sendNextSpeed = true;
-                txDelayActive = 1;
-                txSend = 1;
-            }
-
-            receiveCounter = 0;
-            //}
-        }
+        motors.update();
 
         if (erfReceiveCounter == 12) {
             erfReceiveBuffer[12] = '\0';
@@ -347,26 +207,6 @@ int main() {
             server.sendTo(client, ethSendBuffer, charCount);
 
             erfReceiveCounter = 0;
-        }
-
-        if (txSend) {
-            txSend = 0;
-
-            if (isSettingSpeeds) {
-                //sendNextSpeed = false;
-                int qSpeed = ((speeds[activeSpeedIndex] << 16) / 1000) << 8;
-
-                sendBuffer[0] = '<';
-                sendBuffer[1] = deviceIds[activeSpeedIndex];
-                sendBuffer[2] = 's';
-
-                int * intlocation = (int*)(&sendBuffer[3]);
-                *intlocation = qSpeed;
-
-                sendBuffer[7] = '>';
-
-                deviceWrite(sendBuffer, 8);
-            }
         }
 
         if (led1Update) {
@@ -385,19 +225,6 @@ int main() {
             }
 
             isFirst = !isFirst;
-
-            /*int qSpeed = ((0 << 16) / 1000) << 8;
-
-            sendBuffer[0] = '<';
-            sendBuffer[1] = deviceIds[activeSpeedIndex];
-            sendBuffer[2] = 's';
-
-            int * intlocation = (int*)(&sendBuffer[3]);
-            *intlocation = qSpeed;
-
-            sendBuffer[7] = '>';
-
-            deviceWrite(sendBuffer, 8);*/
         }
 
         int n = server.receiveFrom(client, ethBuffer, sizeof(ethBuffer));
@@ -505,7 +332,7 @@ void executeCommand(char *buffer) {
         int speed5 = atoi(strtok(NULL, ":"));
 
         returnSpeeds = true;
-        setSpeeds(speed1, speed2, speed3, speed4, speed5);
+        motors.setSpeeds(speed1, speed2, speed3, speed4, speed5);
     } else if (strncmp(cmd, "servos", 6) == 0) {
         int servo1Duty = atoi(strtok(NULL, ":"));
         int servo2Duty = atoi(strtok(NULL, ":"));
@@ -532,10 +359,10 @@ void executeCommand(char *buffer) {
         unsigned int kickLength = atoi(strtok(NULL, ":"));
         coilgun.kick(kickLength, 0, 0, 0);
     }*/ else if (strncmp(cmd, "dkick", 5) == 0) {
-        unsigned int kickLength = atoi(strtok(NULL, ":"));
-        unsigned int kickDelay = atoi(strtok(NULL, ":"));
-        unsigned int chipLength = atoi(strtok(NULL, ":"));
-        unsigned int chipDelay = atoi(strtok(NULL, ":"));
+        unsigned int kickLength = (unsigned int) atoi(strtok(NULL, ":"));
+        unsigned int kickDelay = (unsigned int) atoi(strtok(NULL, ":"));
+        unsigned int chipLength = (unsigned int) atoi(strtok(NULL, ":"));
+        unsigned int chipDelay = (unsigned int) atoi(strtok(NULL, ":"));
         //pc.printf("kick:%d:%d:%d:%d\n", kickLength, kickDelay, chipLength, chipDelay);
         coilgun.kick(kickLength, kickDelay, chipLength, chipDelay);
     } /*else if (strncmp(cmd, "bdkick", 6) == 0) {
@@ -558,11 +385,13 @@ void executeCommand(char *buffer) {
         //pc.printf("discharge\n");
         coilgun.discharge();
     } else if (strncmp(cmd, "gs", 2) == 0) {
+        int *speeds = motors.getSpeeds();
+
         int charCount = sprintf(sendBuffer, "<speeds:%d:%d:%d:%d:%d>",
                                 speeds[1], speeds[2], speeds[0], speeds[3], speeds[4]);
         server.sendTo(client, sendBuffer, charCount);
     } /*else if (strncmp(cmd, "reset", 5) == 0) {
-        setSpeeds(0, 0, 0, 0, 0);
+        motors.setSpeeds(0, 0, 0, 0, 0);
     } else if (strncmp(cmd, "fs", 2) == 0) {
         failSafeEnabled = (bool)atoi(strtok(NULL, ":"));
     } else if (strncmp(cmd, "target", 6) == 0) {
@@ -597,20 +426,4 @@ void executeCommand(char *buffer) {
             coilgun.chargeEnd();
         }
     }*/
-}
-
-void deviceWrite(char *sendData, int length) {
-    int i = 0;
-
-    //pc.putc(sendData[1]);
-
-    while (i < length) {
-        if (device.writeable()) {
-            device.putc(sendData[i]);
-            //pc.putc(sendData[i]);
-        }
-        i++;
-    }
-
-    //pc.putc('\n');
 }
