@@ -11,6 +11,7 @@
 
 Serial device(P2_0, P2_1);  // tx, rx
 //Serial device(P0_15, P0_16);  // tx, rx
+Serial erfRef(P0_10, P0_11);
 
 //DigitalOut led1(P0_25);
 //DigitalOut led2(P0_26);
@@ -52,6 +53,9 @@ volatile int led2Update = 0;
 
 char ethBuffer[64];
 char ethSendBuffer[64];
+
+int erfReceiveCounter = 0;
+char erfReceiveBuffer[16];
 
 void executeCommand(char *buffer);
 void deviceWrite(char *sendData, int length);
@@ -187,6 +191,44 @@ void deviceRx() {
     //led4 = !led4;
 }
 
+void erfRx() {
+    while (erfRef.readable()) {
+        char c = LPC_UART2->RBR;
+
+        if (erfReceiveCounter < 12) {
+            switch (erfReceiveCounter) {
+                case 0:
+                    if (c == 'a') {
+                        erfReceiveBuffer[erfReceiveCounter] = c;
+                        erfReceiveCounter++;
+                    } else {
+                        erfReceiveCounter = 0;
+                    }
+                    break;
+                case 1:
+                case 2:
+                case 3:
+                case 4:
+                case 5:
+                case 6:
+                case 7:
+                case 8:
+                case 9:
+                case 10:
+                    erfReceiveBuffer[erfReceiveCounter] = c;
+                    erfReceiveCounter++;
+                    break;
+                case 11:
+                    erfReceiveBuffer[erfReceiveCounter] = c;
+                    erfReceiveCounter++;
+                    break;
+                default:
+                    receiveCounter = 0;
+            }
+        }
+    }
+}
+
 void led1UpdateTick() {
     led1Update = 1;
 }
@@ -204,8 +246,10 @@ void generate(neopixel::Pixel * out, uint32_t index, uintptr_t extra) {
 
 int main() {
     device.baud(150000);
+    erfRef.baud(115200);
 
     device.attach(&deviceRx);
+    erfRef.attach(&erfRx);
 
     sensorUpdate.attach(&updateTick, 0.001);
 
@@ -294,6 +338,15 @@ int main() {
 
             receiveCounter = 0;
             //}
+        }
+
+        if (erfReceiveCounter == 12) {
+            erfReceiveBuffer[12] = '\0';
+
+            int charCount = sprintf(ethSendBuffer, "<ref:%s>", erfReceiveBuffer);
+            server.sendTo(client, ethSendBuffer, charCount);
+
+            erfReceiveCounter = 0;
         }
 
         if (txSend) {
