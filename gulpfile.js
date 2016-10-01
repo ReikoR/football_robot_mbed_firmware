@@ -9,18 +9,35 @@ function getDrives(callback) {
 
     drivelist.list(function(error, disks) {
         if (error) {
-            console.log(drivelist);
+            console.log(error);
         }
 
-        console.log(disks);
+        //console.log(disks);
 
         disks.forEach(function (disk) {
-            if (disk.description.indexOf('mbed') !== -1) {
+            if (/mbed/gi.exec(disk.description)) {
                 validDisks.push(disk);
             }
         });
 
         callback(validDisks);
+    });
+}
+
+function copyBin(callback) {
+    getDrives(function (drives) {
+        //console.log('---');
+        //console.log(drives);
+
+        if (drives.length > 0) {
+            var targetPath = drives[0].mountpoint + '//test.bin';
+
+            copyFile('.build/LPC1768/GCC_ARM/football_robot_mbed_firmware.bin', targetPath, callback);
+        } else {
+            console.log('No drives found');
+
+            callback();
+        }
     });
 }
 
@@ -46,24 +63,11 @@ gulp.task('compile', function(callback) {
 });
 
 gulp.task('program', function(callback) {
-    getDrives(function (drives) {
-        console.log('---');
-        console.log(drives);
-
-        if (drives.length > 0) {
-            var targetPath = drives[0].mountpoint + '//test.bin';
-
-            copyFile('.build/LPC1768/GCC_ARM/test.bin', targetPath, callback);
-        } else {
-            console.log('No drives found');
-
-            callback();
-        }
-    });
+    copyBin(callback);
 });
 
 gulp.task('compile-program', ['compile'], function(callback) {
-    copyFile('.build/LPC1768/GCC_ARM/test.bin', 'F://test.bin', callback);
+    copyBin(callback);
 });
 
 gulp.task('run', ['compile-program']);
