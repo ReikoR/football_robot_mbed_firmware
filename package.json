@@ -1,0 +1,24 @@
+{
+  "name": "football_robot_mbed_firmware",
+  "version": "0.1.0",
+  "description": "",
+  "main": "gulpfile.js",
+  "dependencies": {
+    "drivelist": "^3.3.4",
+    "gulp": "^3.9.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReikoR/football_robot_mbed_firmware.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ReikoR/football_robot_mbed_firmware/issues"
+  },
+  "homepage": "https://github.com/ReikoR/football_robot_mbed_firmware#readme"
+}

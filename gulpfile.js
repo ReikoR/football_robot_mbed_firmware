@@ -2,6 +2,27 @@ var gulp = require('gulp');
 var spawn = require('child_process').spawn;
 var fs = require('fs');
 var path = require('path');
+var drivelist = require('drivelist');
+
+function getDrives(callback) {
+    var validDisks = [];
+
+    drivelist.list(function(error, disks) {
+        if (error) {
+            console.log(drivelist);
+        }
+
+        console.log(disks);
+
+        disks.forEach(function (disk) {
+            if (disk.description.indexOf('mbed') !== -1) {
+                validDisks.push(disk);
+            }
+        });
+
+        callback(validDisks);
+    });
+}
 
 gulp.task('compile', function(callback) {
     var child = spawn('mbed', [
@@ -25,7 +46,20 @@ gulp.task('compile', function(callback) {
 });
 
 gulp.task('program', function(callback) {
-    copyFile('.build/LPC1768/GCC_ARM/test.bin', 'F://test.bin', callback);
+    getDrives(function (drives) {
+        console.log('---');
+        console.log(drives);
+
+        if (drives.length > 0) {
+            var targetPath = drives[0].mountpoint + '//test.bin';
+
+            copyFile('.build/LPC1768/GCC_ARM/test.bin', targetPath, callback);
+        } else {
+            console.log('No drives found');
+
+            callback();
+        }
+    });
 });
 
 gulp.task('compile-program', ['compile'], function(callback) {
@@ -86,6 +120,8 @@ gulp.task('run', ['compile-program']);
 }*/
 
 function copyFile(source, target, cb) {
+    console.log('Copying from', source, 'to', target);
+
     var child = spawn('copy', [
         path.normalize(source), path.normalize(target),
         '/Y'
