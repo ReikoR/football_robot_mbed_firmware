@@ -1,27 +1,60 @@
 #include <TARGET_LPC1768/cmsis.h>
 #include "MotorDriverManagerRS485.h"
 
-MotorDriverManagerRS485::MotorDriverManagerRS485(PinName txPinName, PinName rxPinName, int baudrate):
+MotorDriverManagerRS485::MotorDriverManagerRS485(PinName txPinName, PinName rxPinName):
  serial(txPinName, rxPinName) {
 
+    receiveCounter = 0;
+
+    speeds[0] = 0;
+    speeds[1] = 0;
+    speeds[2] = 0;
+    speeds[3] = 0;
+    speeds[4] = 0;
+
+    actualSpeeds[0] = 0;
+    actualSpeeds[1] = 0;
+    actualSpeeds[2] = 0;
+    actualSpeeds[3] = 0;
+    actualSpeeds[4] = 0;
+
+    deviceIds[0] = '1';
+    deviceIds[1] = '2';
+    deviceIds[2] = '3';
+    deviceIds[3] = '4';
+    deviceIds[4] = '5';
+
+    activeSpeedIndex = 0;
+    isSettingSpeeds = false;
+    sendNextSpeed = false;
+
+    txDelayCount = 1;
+    txDelayCounter = 0;
+    txDelayActive = 0;
+    txSend = 0;
+
     if (rxPinName == P2_1) {
-        RBR = LPC_UART1->RBR;
-    } else  if (rxPinName == P0_11) {
-        RBR = LPC_UART2->RBR;
+        serialId = 1;
+    } else if (rxPinName == P0_11) {
+        serialId = 2;
+    } else {
+        serialId = 0;
     }
 
-    serial.baud(baudrate);
-
-    serial.attach(&rxHandler);
+    serial.attach(this, &MotorDriverManagerRS485::rxHandler);
 }
 
-void MotorDriverManagerRS485::rxHandler() {
+void MotorDriverManagerRS485::baud(int baudrate) {
+    serial.baud(baudrate);
+}
+
+void MotorDriverManagerRS485::rxHandler(void) {
     // Interrupt does not work with RTOS when using standard functions (getc, putc)
     // https://developer.mbed.org/forum/bugs-suggestions/topic/4217/
 
     while (serial.readable()) {
         //char c = device.getc();
-        char c = RBR;
+        char c = serialReadChar();
 
         if (receiveCounter < 8) {
             switch (receiveCounter) {
@@ -130,12 +163,12 @@ void MotorDriverManagerRS485::update() {
 
             sendBuffer[7] = '>';
 
-            deviceWrite(sendBuffer, 8);
+            serialWrite(sendBuffer, 8);
         }
     }
 }
 
-void MotorDriverManagerRS485::deviceWrite(char *sendData, int length) {
+void MotorDriverManagerRS485::serialWrite(char *sendData, int length) {
     int i = 0;
 
     while (i < length) {
@@ -146,6 +179,20 @@ void MotorDriverManagerRS485::deviceWrite(char *sendData, int length) {
     }
 }
 
+
+
 int *MotorDriverManagerRS485::getSpeeds() {
     return speeds;
+}
+
+char MotorDriverManagerRS485::serialReadChar() {
+    if (serialId == 1) {
+        return LPC_UART1->RBR;
+    }
+
+    if (serialId == 2) {
+        return LPC_UART2->RBR;
+    }
+
+    return LPC_UART0->RBR;
 }
