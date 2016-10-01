@@ -4,18 +4,15 @@
 #include "coilgun.h"
 #include "MCP3021.h"
 #include "MotorDriverManagerRS485.h"
+#include "CisecoManager.h"
 
 #define SERVER_PORT   8042
 
 // This must be an SPI MOSI pin.
 #define DATA_PIN P0_9
 
-MotorDriverManagerRS485 motors(P2_0, P2_1, 150000);
-
-Serial erfRef(P0_10, P0_11);
-
-//DigitalOut led1(P0_25);
-//DigitalOut led2(P0_26);
+MotorDriverManagerRS485 motors(P2_0, P2_1);
+CisecoManager ciseco(P0_10, P0_11);
 
 PwmOut servo1(P2_5);
 PwmOut servo2(P2_4);
@@ -55,9 +52,6 @@ volatile int led2Update = 0;
 char ethBuffer[64];
 char ethSendBuffer[64];
 
-int erfReceiveCounter = 0;
-char erfReceiveBuffer[16];
-
 void executeCommand(char *buffer);
 
 char sendBuffer[64];
@@ -93,44 +87,6 @@ void updateTick() {
     update = 1;
 }
 
-void erfRx() {
-    while (erfRef.readable()) {
-        char c = LPC_UART2->RBR;
-
-        if (erfReceiveCounter < 12) {
-            switch (erfReceiveCounter) {
-                case 0:
-                    if (c == 'a') {
-                        erfReceiveBuffer[erfReceiveCounter] = c;
-                        erfReceiveCounter++;
-                    } else {
-                        erfReceiveCounter = 0;
-                    }
-                    break;
-                case 1:
-                case 2:
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 7:
-                case 8:
-                case 9:
-                case 10:
-                    erfReceiveBuffer[erfReceiveCounter] = c;
-                    erfReceiveCounter++;
-                    break;
-                case 11:
-                    erfReceiveBuffer[erfReceiveCounter] = c;
-                    erfReceiveCounter++;
-                    break;
-                default:
-                    erfReceiveCounter = 0;
-            }
-        }
-    }
-}
-
 void led1UpdateTick() {
     led1Update = 1;
 }
@@ -151,11 +107,16 @@ void handleSpeedsSent() {
     }
 }
 
+void handleCisecoMessage() {
+    int charCount = sprintf(ethSendBuffer, "<ref:%s>", ciseco.read());
+    server.sendTo(client, ethSendBuffer, charCount);
+}
+
 int main() {
-    erfRef.baud(115200);
+    ciseco.baud(115200);
+    ciseco.attach(&handleCisecoMessage);
 
-    erfRef.attach(&erfRx);
-
+    motors.baud(150000);
     motors.attach(&handleSpeedsSent);
 
     sensorUpdate.attach(&updateTick, 0.001);
@@ -200,14 +161,7 @@ int main() {
     while(1) {
         motors.update();
 
-        if (erfReceiveCounter == 12) {
-            erfReceiveBuffer[12] = '\0';
-
-            int charCount = sprintf(ethSendBuffer, "<ref:%s>", erfReceiveBuffer);
-            server.sendTo(client, ethSendBuffer, charCount);
-
-            erfReceiveCounter = 0;
-        }
+        ciseco.update();
 
         if (led1Update) {
             led1Update = 0;

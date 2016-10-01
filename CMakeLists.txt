@@ -49,6 +49,7 @@ enable_language(ASM)
 
 add_sources(main.cpp)
 add_sources(MotorDriverManagerRS485/MotorDriverManagerRS485.cpp)
+add_sources(CisecoManager/CisecoManager.cpp)
 
 include_directories(
         ${MBED_PATH}/
@@ -62,6 +63,7 @@ include_directories(
         DoubleCoilGun
         MCP3021
         MotorDriverManagerRS485
+        CisecoManager
 )
 
 add_definitions(-DDEVICE_SERIAL)
