@@ -182,7 +182,7 @@ void MotorDriverManagerRS485::serialWrite(char *sendData, int length) {
 
 
 int *MotorDriverManagerRS485::getSpeeds() {
-    return speeds;
+    return actualSpeeds;
 }
 
 char MotorDriverManagerRS485::serialReadChar() {

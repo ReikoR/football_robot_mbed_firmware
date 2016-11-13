@@ -5,21 +5,25 @@
 #include "MCP3021.h"
 #include "MotorDriverManagerRS485.h"
 #include "CisecoManager.h"
+#include "LedManager.h"
 
 #define SERVER_PORT   8042
 
-// This must be an SPI MOSI pin.
-#define DATA_PIN P0_9
-
 MotorDriverManagerRS485 motors(P2_0, P2_1);
 CisecoManager ciseco(P0_10, P0_11);
+LedManager leds(P0_9);
 
 PwmOut servo1(P2_5);
 PwmOut servo2(P2_4);
 
 MCP3021 coilADC(P0_27, P0_28, 5.0);
-//Coilgun coilgun(P0_30, P0_29, P3_25, P3_26);
-Coilgun coilgun(P0_30, P0_29, P3_25, NC);
+//Coilgun coilgun(P0_29, P3_25, P3_26, P0_30);
+Coilgun coilgun(P0_29, P3_25, P3_26, NC);
+
+//https://developer.mbed.org/questions/897/P029-P030-as-GPIO/
+//DigitalOut test1(P0_29);
+DigitalOut test2(P0_30);
+//DigitalOut test3(P3_25);
 
 DigitalIn ball(P1_29);
 DigitalIn goalButton(P0_26);
@@ -43,12 +47,6 @@ extern "C" void mbed_mac_address(char *s) {
     memcpy(s, mac, 6);
 }
 
-Ticker led1Ticker;
-volatile int led1Update = 0;
-
-Ticker led2Ticker;
-volatile int led2Update = 0;
-
 char ethBuffer[64];
 char ethSendBuffer[64];
 
@@ -57,6 +55,12 @@ void executeCommand(char *buffer);
 char sendBuffer[64];
 
 bool returnSpeeds = true;
+
+bool failSafeEnabled = true;
+int failSafeCountMotors = 0;
+int failSafeCountCoilgun = 0;
+int failSafeLimitMotors = 500;
+int failSafeLimitCoilgun = 5000;
 
 int ledCount = 1000;
 int ledCounter = 0;
@@ -70,6 +74,15 @@ int goalButtonDebounceCounter = goalButtonDebounceCount + 1;
 int startButtonDebounceCounter = goalButtonDebounceCount + 1;
 
 int currentGoal = 2;
+
+unsigned int currentKickLength = 0;
+unsigned int currentKickDelay = 0;
+unsigned int currentChipLength = 0;
+unsigned int currentChipDelay = 0;
+bool kickWhenBall = false;
+bool sendKicked = false;
+unsigned int noBallKickLength = 500;
+unsigned int noBallChipLength = 500;
 
 UDPSocket server;
 Endpoint client;
@@ -85,14 +98,6 @@ void updateTick() {
     }
 
     update = 1;
-}
-
-void led1UpdateTick() {
-    led1Update = 1;
-}
-
-void led2UpdateTick() {
-    led2Update = 1;
 }
 
 void handleSpeedsSent() {
@@ -121,17 +126,6 @@ int main() {
 
     sensorUpdate.attach(&updateTick, 0.001);
 
-    led1Ticker.attach(&led1UpdateTick, 3.0);
-    led2Ticker.attach(&led2UpdateTick, 1.0);
-
-    // Create a temporary DigitalIn so we can configure the pull-down resistor.
-    // (The mbed API doesn't provide any other way to do this.)
-    // An alternative is to connect an external pull-down resistor.
-    DigitalIn(DATA_PIN, PullDown);
-
-    // The pixel array control class.
-    neopixel::PixelArray array(DATA_PIN);
-
     eth.init("192.168.4.1", "255.255.255.0", "192.168.4.8");
 
     eth.connect(10000);
@@ -139,13 +133,6 @@ int main() {
     server.bind(SERVER_PORT);
 
     server.set_blocking(false, 1);
-
-    neopixel::Pixel pixels[] = {
-            {0, 0, 40}, {40, 40, 0}
-    };
-    neopixel::Pixel pixels2[] = {
-            {0, 40, 0}, {0, 30, 30}
-    };
 
     servo1.period_us(20000);
 
@@ -156,30 +143,10 @@ int main() {
 
     int isFirst = true;
 
-    array.update(pixels, 2);
-
     while(1) {
         motors.update();
 
         ciseco.update();
-
-        if (led1Update) {
-            led1Update = 0;
-            //led1 = !led1;
-        }
-
-        if (led2Update) {
-            led2Update = 0;
-            //led2 = !led2;
-
-            if (isFirst) {
-                array.update(pixels, 2);
-            } else {
-                array.update(pixels2, 2);
-            }
-
-            isFirst = !isFirst;
-        }
 
         int n = server.receiveFrom(client, ethBuffer, sizeof(ethBuffer));
 
@@ -194,6 +161,31 @@ int main() {
 
         if (update) {
             update = 0;
+
+            failSafeCountMotors++;
+            failSafeCountCoilgun++;
+
+            if (failSafeCountMotors == failSafeLimitMotors) {
+                failSafeCountMotors = 0;
+
+                if (failSafeEnabled) {
+                    returnSpeeds = false;
+                    motors.setSpeeds(0, 0, 0, 0, 0);
+                }
+            }
+
+            if (failSafeCountCoilgun == failSafeLimitCoilgun) {
+                failSafeCountCoilgun = 0;
+
+                if (failSafeEnabled) {
+                    coilgun.discharge();
+
+                    if (!coilgun.isCharged) {
+                        int charCount = sprintf(sendBuffer, "<discharged>");
+                        server.sendTo(client, sendBuffer, charCount);
+                    }
+                }
+            }
 
             if (goalButtonDebounceCounter < goalButtonDebounceCount) {
                 goalButtonDebounceCounter++;
@@ -218,23 +210,29 @@ int main() {
             if (updateLeds) {
                 updateLeds = 0;
 
-                /*if (currentGoal == 2) {
-                    rgbLed1.toggle();
+                if (currentGoal == 2) {
+                    if (blinkState) {
+                        leds.setLedColor(0, LedManager::BLUE);
+                    } else {
+                        leds.setLedColor(0, LedManager::YELLOW);
+                    }
                 } else if (currentGoal == 0) {
                     if (blinkState) {
-                        rgbLed1.setColor(RgbLed::BLUE);
+                        leds.setLedColor(0, LedManager::BLUE);
                     } else {
-                        rgbLed1.setColor(RgbLed::OFF);
+                        leds.setLedColor(0, LedManager::OFF);
                     }
                 } else if (currentGoal == 1) {
                     if (blinkState) {
-                        rgbLed1.setColor(RgbLed::YELLOW);
+                        leds.setLedColor(0, LedManager::YELLOW);
                     } else {
-                        rgbLed1.setColor(RgbLed::OFF);
+                        leds.setLedColor(0, LedManager::OFF);
                     }
                 }
 
-                blinkState = !blinkState;*/
+                blinkState = !blinkState;
+
+                leds.update();
             }
         }
 
@@ -242,15 +240,29 @@ int main() {
         if (ballState != newBallState) {
 
             /*if (newBallState) {
-                rgbLed2.setColor(RgbLed::MAGENTA);
+                leds.setLedColor(1, LedManager::MAGENTA);
             } else {
-                rgbLed2.setColor(RgbLed::OFF);
+                leds.setLedColor(1, LedManager::OFF);
             }*/
 
             int charCount = sprintf(sendBuffer, "<ball:%d>", newBallState);
             server.sendTo(client, sendBuffer, charCount);
             //pc.printf("<ball:%d>\n", newBallState);
             ballState = newBallState;
+
+            if (kickWhenBall && ballState) {
+                kickWhenBall = false;
+                coilgun.kick(currentKickLength, currentKickDelay, currentChipLength, currentChipDelay);
+                sendKicked = true;
+            }
+
+            if (!ballState && sendKicked) {
+                sendKicked = false;
+                //pc.printf("<kicked>\n");
+                charCount = sprintf(sendBuffer, "<kicked>");
+                server.sendTo(client, sendBuffer, charCount);
+                //server.sendTo(client, "<kicked>", 8);
+            }
         }
 
         int newGoalButtonState = goalButton;
@@ -270,8 +282,8 @@ int main() {
 }
 
 void executeCommand(char *buffer) {
-    //failSafeCountMotors = 0;
-    //failSafeCountCoilgun = 0;
+    failSafeCountMotors = 0;
+    failSafeCountCoilgun = 0;
 
     char *cmd;
     cmd = strtok(buffer, ":");
@@ -309,17 +321,17 @@ void executeCommand(char *buffer) {
                 servo2.pulsewidth_us(servo2Duty);
             }
         }
-    } /*else if (strncmp(cmd, "kick", 4) == 0) {
-        unsigned int kickLength = atoi(strtok(NULL, ":"));
+    } else if (strncmp(cmd, "kick", 4) == 0) {
+        unsigned int kickLength = (unsigned int) atoi(strtok(NULL, ":"));
         coilgun.kick(kickLength, 0, 0, 0);
-    }*/ else if (strncmp(cmd, "dkick", 5) == 0) {
+    } else if (strncmp(cmd, "dkick", 5) == 0) {
         unsigned int kickLength = (unsigned int) atoi(strtok(NULL, ":"));
         unsigned int kickDelay = (unsigned int) atoi(strtok(NULL, ":"));
         unsigned int chipLength = (unsigned int) atoi(strtok(NULL, ":"));
         unsigned int chipDelay = (unsigned int) atoi(strtok(NULL, ":"));
         //pc.printf("kick:%d:%d:%d:%d\n", kickLength, kickDelay, chipLength, chipDelay);
         coilgun.kick(kickLength, kickDelay, chipLength, chipDelay);
-    } /*else if (strncmp(cmd, "bdkick", 6) == 0) {
+    } else if (strncmp(cmd, "bdkick", 6) == 0) {
         currentKickLength = atoi(strtok(NULL, ":"));
         currentKickDelay = atoi(strtok(NULL, ":"));
         currentChipLength = atoi(strtok(NULL, ":"));
@@ -333,7 +345,7 @@ void executeCommand(char *buffer) {
         }
     } else if (strncmp(cmd, "nokick", 6) == 0) {
         kickWhenBall = false;
-    }*/ else if (strncmp(cmd, "charge", 6) == 0) {
+    } else if (strncmp(cmd, "charge", 6) == 0) {
         coilgun.charge();
     } else if (strncmp(cmd, "discharge", 9) == 0) {
         //pc.printf("discharge\n");
@@ -344,25 +356,27 @@ void executeCommand(char *buffer) {
         int charCount = sprintf(sendBuffer, "<speeds:%d:%d:%d:%d:%d>",
                                 speeds[1], speeds[2], speeds[0], speeds[3], speeds[4]);
         server.sendTo(client, sendBuffer, charCount);
-    } /*else if (strncmp(cmd, "reset", 5) == 0) {
+    } else if (strncmp(cmd, "reset", 5) == 0) {
         motors.setSpeeds(0, 0, 0, 0, 0);
+        currentGoal = 2;
+        leds.setLedColor(1, LedManager::OFF);
     } else if (strncmp(cmd, "fs", 2) == 0) {
         failSafeEnabled = (bool)atoi(strtok(NULL, ":"));
     } else if (strncmp(cmd, "target", 6) == 0) {
         int target = atoi(strtok(NULL, ":"));
         currentGoal = target;
         if (target == 0) {
-            rgbLed1.setColor(RgbLed::BLUE);
+            leds.setLedColor(0, LedManager::BLUE);
         } else if (target == 1) {
-            rgbLed1.setColor(RgbLed::YELLOW);
+            leds.setLedColor(0, LedManager::YELLOW);
         } else if (target == 2) {
-            rgbLed1.setColor(RgbLed::OFF);
+            leds.setLedColor(0, LedManager::OFF);
         }
     } else if (strncmp(cmd, "error", 5) == 0) {
-        rgbLed2.setRed((bool)atoi(strtok(NULL, ":")));
+        leds.setLedColor(1, LedManager::RED);
     } else if (strncmp(cmd, "go", 2) == 0) {
-        rgbLed2.setGreen((bool)atoi(strtok(NULL, ":")));
-    }*/ else if (strncmp(cmd, "adc", 3) == 0) {
+        leds.setLedColor(1, LedManager::GREEN);
+    } else if (strncmp(cmd, "adc", 3) == 0) {
         int charCount = sprintf(sendBuffer, "<adc:%.1f>", coilADC.read() * 80);
         server.sendTo(client, sendBuffer, charCount);
     } /*else if (strncmp(cmd, "k", 1) == 0) {

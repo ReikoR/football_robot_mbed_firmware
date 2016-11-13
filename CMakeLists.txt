@@ -64,6 +64,7 @@ include_directories(
         MCP3021
         MotorDriverManagerRS485
         CisecoManager
+        LedManager
 )
 
 add_definitions(-DDEVICE_SERIAL)
