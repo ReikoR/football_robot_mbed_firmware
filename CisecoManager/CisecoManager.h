@@ -14,9 +14,13 @@ public:
 
     char *read();
 
+    void send(char *sendData);
+
     void send(char *sendData, int length);
 
     void update();
+
+    void setShortCommandMode(bool isEnabled);
 
     void attach(void (*function)(void)) {
         _callback.attach(function);
@@ -37,10 +41,15 @@ private:
     void serialWrite(char *sendData, int length);
     char serialReadChar();
 
-    int receiveCounter;
+    unsigned int receiveCounter;
     char receiveBuffer[16];
 
     char receivedMessage[13];
+
+    bool shortCommandsEnabled;
+    unsigned int commandLength;
+    unsigned int shortCommandLength;
+    unsigned int longCommandLength;
 };
 
 

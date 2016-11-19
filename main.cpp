@@ -332,10 +332,10 @@ void executeCommand(char *buffer) {
         //pc.printf("kick:%d:%d:%d:%d\n", kickLength, kickDelay, chipLength, chipDelay);
         coilgun.kick(kickLength, kickDelay, chipLength, chipDelay);
     } else if (strncmp(cmd, "bdkick", 6) == 0) {
-        currentKickLength = atoi(strtok(NULL, ":"));
-        currentKickDelay = atoi(strtok(NULL, ":"));
-        currentChipLength = atoi(strtok(NULL, ":"));
-        currentChipDelay = atoi(strtok(NULL, ":"));
+        currentKickLength = (unsigned int) atoi(strtok(NULL, ":"));
+        currentKickDelay = (unsigned int) atoi(strtok(NULL, ":"));
+        currentChipLength = (unsigned int) atoi(strtok(NULL, ":"));
+        currentChipDelay = (unsigned int) atoi(strtok(NULL, ":"));
         //pc.printf("kick:%d:%d:%d:%d\n", kickLength, kickDelay, chipLength, chipDelay);
         if (ballState) {
             coilgun.kick(currentKickLength, currentKickDelay, currentChipLength, currentChipDelay);
@@ -356,6 +356,16 @@ void executeCommand(char *buffer) {
         int charCount = sprintf(sendBuffer, "<speeds:%d:%d:%d:%d:%d>",
                                 speeds[1], speeds[2], speeds[0], speeds[3], speeds[4]);
         server.sendTo(client, sendBuffer, charCount);
+    } else if (strncmp(cmd, "rf", 2) == 0) {
+        //ciseco.send(strtok(NULL, ":"), strlen(buffer) - 3);
+
+        //char *message = strtok(NULL, ":");
+
+        //int charCount = sprintf(sendBuffer, "<rf:%d:%s>", strlen(message), message);
+        //server.sendTo(client, sendBuffer, charCount);
+
+        //char test[] = "test";
+        ciseco.send(buffer + 3);
     } else if (strncmp(cmd, "reset", 5) == 0) {
         motors.setSpeeds(0, 0, 0, 0, 0);
         currentGoal = 2;
@@ -379,6 +389,8 @@ void executeCommand(char *buffer) {
     } else if (strncmp(cmd, "adc", 3) == 0) {
         int charCount = sprintf(sendBuffer, "<adc:%.1f>", coilADC.read() * 80);
         server.sendTo(client, sendBuffer, charCount);
+    } else if (strncmp(cmd, "refshort", 8) == 0) {
+        ciseco.setShortCommandMode((bool)atoi(strtok(NULL, ":")));
     } /*else if (strncmp(cmd, "k", 1) == 0) {
         unsigned int kickLength = atoi(strtok(NULL, ":"));
         coilgun.kick(kickLength, 0, 0, 0);

@@ -5,6 +5,10 @@ CisecoManager::CisecoManager(PinName txPinName, PinName rxPinName):
         serial(txPinName, rxPinName) {
 
     receiveCounter = 0;
+    shortCommandsEnabled = false;
+    shortCommandLength = 5;
+    longCommandLength = 12;
+    commandLength = longCommandLength;
 
     if (rxPinName == P2_1) {
         serialId = 1;
@@ -28,35 +32,17 @@ void CisecoManager::rxHandler(void) {
     while (serial.readable()) {
         char c = serialReadChar();
 
-        if (receiveCounter < 12) {
-            switch (receiveCounter) {
-                case 0:
-                    if (c == 'a') {
-                        receiveBuffer[receiveCounter] = c;
-                        receiveCounter++;
-                    } else {
-                        receiveCounter = 0;
-                    }
-                    break;
-                case 1:
-                case 2:
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 7:
-                case 8:
-                case 9:
-                case 10:
+        if (receiveCounter < commandLength) {
+            if (receiveCounter == 0) {
+                if (c == 'a') {
                     receiveBuffer[receiveCounter] = c;
                     receiveCounter++;
-                    break;
-                case 11:
-                    receiveBuffer[receiveCounter] = c;
-                    receiveCounter++;
-                    break;
-                default:
+                } else {
                     receiveCounter = 0;
+                }
+            } else {
+                receiveBuffer[receiveCounter] = c;
+                receiveCounter++;
             }
         }
     }
@@ -66,13 +52,17 @@ char *CisecoManager::read() {
     return receivedMessage;
 }
 
+void CisecoManager::send(char *sendData) {
+    serialWrite(sendData, commandLength);
+}
+
 void CisecoManager::send(char *sendData, int length) {
     serialWrite(sendData, length);
 }
 
 void CisecoManager::update() {
-    if (receiveCounter == 12) {
-        receiveBuffer[12] = '\0';
+    if (receiveCounter == commandLength) {
+        receiveBuffer[commandLength] = '\0';
 
         receiveCounter = 0;
 
@@ -103,4 +93,15 @@ char CisecoManager::serialReadChar() {
     }
 
     return LPC_UART0->RBR;
+}
+
+void CisecoManager::setShortCommandMode(bool isEnabled) {
+    shortCommandsEnabled = isEnabled;
+    receiveCounter = 0;
+
+    if (isEnabled) {
+        commandLength = shortCommandLength;
+    } else {
+        commandLength = longCommandLength;
+    }
 }
