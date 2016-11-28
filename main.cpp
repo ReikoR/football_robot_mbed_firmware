@@ -246,6 +246,12 @@ int main() {
                 blinkState = !blinkState;
 
                 leds.update();
+
+                if (ball) {
+                    server.sendTo(client, messageHasBall, 8);
+                } else {
+                    server.sendTo(client, messageNoBall, 8);
+                }
             }
         }
 
@@ -409,6 +415,14 @@ void executeCommand(char *buffer) {
         server.sendTo(client, sendBuffer, charCount);
     } else if (strncmp(cmd, "refshort", 8) == 0) {
         ciseco.setShortCommandMode((bool)atoi(strtok(NULL, ":")));
+    } else if (strncmp(cmd, "ping", 4) == 0) {
+        server.sendTo(client, "<pong>", 6);
+    } else if (strncmp(cmd, "gb", 3) == 0) {
+        if (ball) {
+            server.sendTo(client, messageHasBall, 8);
+        } else {
+            server.sendTo(client, messageNoBall, 8);
+        }
     } /*else if (strncmp(cmd, "k", 1) == 0) {
         unsigned int kickLength = atoi(strtok(NULL, ":"));
         coilgun.kick(kickLength, 0, 0, 0);
