@@ -54,6 +54,13 @@ void executeCommand(char *buffer);
 
 char sendBuffer[64];
 
+char *messageDischarged = (char *)"<discharged>";
+char *messageKicked = (char *)"<kicked>";
+char *messageToggleSide = (char *)"<toggle-side>";
+char *messageToggleGo = (char *)"<toggle-go>";
+char *messageHasBall = (char *)"<ball:1>";
+char *messageNoBall = (char *)"<ball:0>";
+
 bool returnSpeeds = true;
 
 bool failSafeEnabled = true;
@@ -139,8 +146,6 @@ int main() {
     servo1.pulsewidth_us(1500);
     servo2.pulsewidth_us(1500);
 
-    uint32_t offset = 0;
-
     int isFirst = true;
 
     while(1) {
@@ -181,8 +186,9 @@ int main() {
                     coilgun.discharge();
 
                     if (!coilgun.isCharged) {
-                        int charCount = sprintf(sendBuffer, "<discharged>");
-                        server.sendTo(client, sendBuffer, charCount);
+                        //int charCount = sprintf(sendBuffer, "<discharged>");
+                        //server.sendTo(client, sendBuffer, charCount);
+                        server.sendTo(client, messageDischarged, 12);
                     }
                 }
             }
@@ -192,8 +198,9 @@ int main() {
             } else if (goalButtonDebounceCounter == goalButtonDebounceCount) {
                 goalButtonDebounceCounter++;
                 if (!goalButtonState) {
-                    int charCount = sprintf(sendBuffer, "<toggle-side>");
-                    server.sendTo(client, sendBuffer, charCount);
+                    /*int charCount = sprintf(sendBuffer, "<toggle-side>");
+                    server.sendTo(client, sendBuffer, charCount);*/
+                    server.sendTo(client, messageToggleSide, 13);
                 }
             }
 
@@ -202,8 +209,9 @@ int main() {
             } else if (startButtonDebounceCounter == startButtonDebounceCount) {
                 startButtonDebounceCounter++;
                 if (startButtonState) {
-                    int charCount = sprintf(sendBuffer, "<toggle-go>");
-                    server.sendTo(client, sendBuffer, charCount);
+                    /*int charCount = sprintf(sendBuffer, "<toggle-go>");
+                    server.sendTo(client, sendBuffer, charCount);*/
+                    server.sendTo(client, messageToggleGo, 11);
                 }
             }
 
@@ -239,14 +247,19 @@ int main() {
         int newBallState = ball;
         if (ballState != newBallState) {
 
-            /*if (newBallState) {
+            if (newBallState) {
                 leds.setLedColor(1, LedManager::MAGENTA);
             } else {
                 leds.setLedColor(1, LedManager::OFF);
-            }*/
+            }
 
-            int charCount = sprintf(sendBuffer, "<ball:%d>", newBallState);
-            server.sendTo(client, sendBuffer, charCount);
+            /*int charCount = sprintf(sendBuffer, "<ball:%d>", newBallState);
+            server.sendTo(client, sendBuffer, charCount);*/
+            if (newBallState) {
+                server.sendTo(client, messageHasBall, 8);
+            } else {
+                server.sendTo(client, messageNoBall, 8);
+            }
             //pc.printf("<ball:%d>\n", newBallState);
             ballState = newBallState;
 
@@ -259,9 +272,9 @@ int main() {
             if (!ballState && sendKicked) {
                 sendKicked = false;
                 //pc.printf("<kicked>\n");
-                charCount = sprintf(sendBuffer, "<kicked>");
-                server.sendTo(client, sendBuffer, charCount);
-                //server.sendTo(client, "<kicked>", 8);
+                //int charCount = sprintf(sendBuffer, "<kicked>");
+                //server.sendTo(client, sendBuffer, charCount);
+                server.sendTo(client, messageKicked, 8);
             }
         }
 
