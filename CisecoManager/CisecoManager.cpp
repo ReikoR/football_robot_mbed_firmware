@@ -2,8 +2,9 @@
 #include "CisecoManager.h"
 
 CisecoManager::CisecoManager(PinName txPinName, PinName rxPinName):
-        serial(txPinName, rxPinName) {
+        serial(txPinName, rxPinName), buf(64) {
 
+    messageAvailable = false;
     receiveCounter = 0;
     shortCommandsEnabled = false;
     shortCommandLength = 5;
@@ -34,21 +35,46 @@ void CisecoManager::rxHandler(void) {
 
         if (receiveCounter < commandLength) {
             if (receiveCounter == 0) {
+                // Do not continue before a is received
                 if (c == 'a') {
                     receiveBuffer[receiveCounter] = c;
                     receiveCounter++;
-                } else {
-                    receiveCounter = 0;
                 }
+            } else if (c == 'a' && !shortCommandsEnabled
+                || c == 'a' && shortCommandsEnabled && (receiveCounter < commandLength - 1)
+            ) {
+                // If a is received in the middle, assume some bytes got lost before and start from beginning
+                receiveCounter = 0;
+
+                receiveBuffer[receiveCounter] = c;
+                receiveCounter++;
             } else {
                 receiveBuffer[receiveCounter] = c;
                 receiveCounter++;
+            }
+
+            if (receiveCounter == commandLength) {
+                receiveCounter = 0;
+
+                for (unsigned int i = 0; i < commandLength; i++) {
+                    buf.queue(receiveBuffer[i]);
+                }
+
+                if (!messageAvailable) {
+                    handleMessage();
+                    //break;
+                }
             }
         }
     }
 }
 
+bool CisecoManager::readable() {
+    return messageAvailable;
+}
+
 char *CisecoManager::read() {
+    messageAvailable = false;
     return receivedMessage;
 }
 
@@ -61,15 +87,32 @@ void CisecoManager::send(char *sendData, int length) {
 }
 
 void CisecoManager::update() {
-    if (receiveCounter == commandLength) {
-        receiveBuffer[commandLength] = '\0';
-
-        receiveCounter = 0;
-
-        memcpy(receivedMessage, receiveBuffer, sizeof(receiveBuffer));
-
+    /*if (receiveCounter == commandLength) {
+        handleMessage();
         _callback.call();
+    }*/
+
+    if (buf.available() >= commandLength) {
+        handleMessage();
     }
+}
+
+void CisecoManager::handleMessage() {
+    if (messageAvailable) {
+        return;
+    }
+
+    for (unsigned int i = 0; i < commandLength; i++) {
+        buf.dequeue(receivedMessage + i);
+    }
+
+    receivedMessage[commandLength] = '\0';
+
+    /*receiveCounter = 0;
+
+    memcpy(receivedMessage, receiveBuffer, sizeof(receiveBuffer));*/
+
+    messageAvailable = true;
 }
 
 void CisecoManager::serialWrite(char *sendData, int length) {

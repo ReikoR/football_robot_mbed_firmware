@@ -2,6 +2,7 @@
 #define CISECOMANAGER_H
 
 #include "mbed.h"
+#include "CircBuffer.h"
 
 class CisecoManager {
 protected:
@@ -20,7 +21,11 @@ public:
 
     void update();
 
+    void handleMessage();
+
     void setShortCommandMode(bool isEnabled);
+
+    bool readable();
 
     void attach(void (*function)(void)) {
         _callback.attach(function);
@@ -38,13 +43,17 @@ private:
 
     void rxHandler(void);
 
+    bool messageAvailable;
+
     void serialWrite(char *sendData, int length);
     char serialReadChar();
+
+    CircBuffer<char> buf;
 
     unsigned int receiveCounter;
     char receiveBuffer[16];
 
-    char receivedMessage[13];
+    char receivedMessage[16];
 
     bool shortCommandsEnabled;
     unsigned int commandLength;

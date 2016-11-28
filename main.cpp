@@ -151,6 +151,11 @@ int main() {
     while(1) {
         motors.update();
 
+        if (ciseco.readable()) {
+            int charCount = sprintf(ethSendBuffer, "<ref:%s>", ciseco.read());
+            server.sendTo(client, ethSendBuffer, charCount);
+        }
+
         ciseco.update();
 
         int n = server.receiveFrom(client, ethBuffer, sizeof(ethBuffer));
